@@ -1,0 +1,120 @@
+
+For 53131A
+
+The protocol is similar to SPI. It is clocked at ~1 MHz, with 4 byte
+word bursts at about 1 kHz rate.
+
+It is 5 V logic.
+
+The lines and their SPI equivalents are:
+VFDSCLK - Clock, data sampling on rising edge
+VFDSOUT - Data, from MCU to display
+VFDSIN  - Data, from display to MCU, 32 bit shift register
+VFDSEN  - Enable, active high, inverted compared to a SPI /SS
+
+VFDSCLK:
+____   _   _   _       _   _   _____
+    \_/ \_/ \_/  ... _/ \_/ \_/
+VFDSOUT:
+________________     _______________
+    \___X___X___ ... ___X___X___/
+VFDSEN:
+   _____________     ___________
+__/              ...            \___
+Bit: (MSB first)
+      0   1   2  ...  29  30  31
+
+Every ~976 us (~1024 Hz), there is a 32 bit word, with bits clocked at
+~934 kHz. After the first 16 bits, the clock makes a small pause of
+about 0.5 bit cycle.
+
+Each 32 bit word enables one gate (character position) and any
+combination of segments for that position. The first 12 bits are gate
+enablers, the first/highest bit enabling the leftmost/most significant
+character. The segments are 14 bits for the segments of the
+digit/character display, 3 bits for the separator segments for ".",
+",", ":" and ";" and 1 bit for the text label under each
+character. The rightmost character is special; instead of separators
+the bits enable the "u" (mu) and "s" unit indicators and the "Gate"
+text label, and it has two extra bits for the "M" and "Hz" unit
+indicators.
+
+A frame has 16 words - 1 for each of the 12 characters, and 4 extra
+that can be highlighted, x0-x3 below. The frame rate is ~1024 / 16 =
+~64 Hz.
+
+Below data is shown as big endian, first byte leftmost, and with first
+bit on SPI as most significant.
+
+Bits:
+0xfff00000 - gate enablers (character position)
+0x0000fcff - 14 segment character
+0x00070000 - separators, on rightmost position "u", "s" and "Gate"
+0x00080000 - text label
+0x00000300 - on rightmost position units "M", "Hz" 
+
+Examples:
+
+Text: "FREQUENCY 1 "; Labels: "Freq", "Ch1"
+1000CC8C # char 8 "Q"
+  100000 # char 0 empty
+2000C087 # char 9 "E"
+  202040 # char 1 "1"
+4008888F # char 10 "R", label: "Freq"
+  400000 # char 2 empty (space)
+80008087 # char 11 "F"
+  802030 # char 3 "Y"
+80000000 # x3 - no highlighting
+ 108C084 # char 4 "C", label: "Ch1"
+80000000 # x2 - no highlighting
+ 2008C2C # char 5 "N"
+80000000 # x1 - no highlighting
+ 400C087 # char 6 "E"
+80000000 # x0 - no highlighting
+ 800C40C # char 7 "U"
+
+When a character is blinking, it changes between being normally
+displayed and being highlighted. The character is powered an extra
+time per frame using word x0-x3 which makes it brighter. The flashing,
+changing between the character and empty, is done in the normal word
+for that character. Only the 14 segments of the character seems to be
+flashing and highlighted, not the indicators or the text labels.
+
+As there are only 4 words x0-x3, only 4 characters can be highlighted
+using this mechanism, and it seems also never more than 4 characters are
+highlighted and blinking.
+
+"LIM TEST: OFF", where "OFF" is highlighted and blinking
+10000000 # char 8 space
+  108087 # char 0 "F"
+2000843C # char 9 "M"
+  208087 # char 1 "F"
+400860C0 # char 10 "I", label: "Freq"
+  40C48C # char 2 "O"
+8000C004 # char 11 "L"
+  800000 # char 3 space
+80000000 # x3 - empty, no highlight
+ 10B20C0 # char 4 "T", separator ":", label "Ch1"
+  108087 # x2 - highlight char 0 "F"
+ 20044A1 # char 5 "S"
+  208087 # x1 - highlight char 1 "F"
+ 400C087 # char 6 "E"
+  40C48C # x0 - highlight char 2 "O"
+ 80020C0 # char 7 "T
+
+10000000 # char 8 space
+  100000 # char 0 empty ***
+2000843C # char 9 "M"
+  200000 # char 1 empty ***
+400860C0 # char 10 "I", label: "Freq"
+  400000 # char 2 empty ***
+8000C004 # char 11 "L"
+  800000 # char 3 space
+80000000 # x3 - empty, no highlight
+ 10B20C0 # char 4 "T", separator ":", label "Ch1"
+  108087 # x2 - highlight char 0 "F"
+ 20044A1 # char 5 "S"
+  208087 # x1 - highlight char 1 "F"
+ 400C087 # char 6 "E"
+  40C48C # x0 - highlight char 2 "O"
+ 80020C0 # char 7 "T
